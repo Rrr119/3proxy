@@ -302,6 +302,7 @@ sudo launchctl unload /Library/LaunchDaemons/org.3proxy.3proxy.plist
 - Syslog logging (Unix)
 - ODBC logging
 - RADIUS accounting
+- Independent session audit log with user, destination, result, traffic and throttling fields, including refused authentication and access attempts when the ordinary access log is disabled
 - Log file rotation
 - Automatic log file processing with external archiver (for files)
 - Character filtering for log files
@@ -311,6 +312,7 @@ sudo launchctl unload /Library/LaunchDaemons/org.3proxy.3proxy.plist
 
 - ACL-driven Access control by username, source IP, destination IP/hostname, destination port and destination action (POST, PUT, GET, etc), weekday and daytime
 - ACL-driven (user/source/destination/protocol/weekday/daytime or combined) bandwidth limitation for incoming and (!)outgoing traffic
+- Per-user bandwidth limitation with an independent bucket for every user (`userbandlimin`, `userbandlimout`)
 - ACL-driven traffic limitation per day, week or month for incoming and outgoing traffic
 - Connection limitation and ratelimiting
 - User authentication by username / password

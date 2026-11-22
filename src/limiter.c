@@ -78,6 +78,8 @@ void initbandlims (struct clientparam *param){
 	param->bandlimfunc = NULL;
 	param->bandlims[0] = NULL;
 	param->bandlimsout[0] = NULL;
+	param->userbandthrottled = 0;
+	param->userbandratein = param->userbandrateout = 0;
 	if(!conf.bandlimfunc || (!conf.bandlimiter && !conf.bandlimiterout)) return;
 	for(i=0, be = conf.bandlimiter; be && i<MAXBANDLIMS; be = be->next) {
 		if(ACLmatches(be->ace, param)){
@@ -86,6 +88,8 @@ void initbandlims (struct clientparam *param){
 			}
 			param->bandlims[i++] = be;
 			param->bandlimfunc = conf.bandlimfunc;
+			if(be->peruser && (!param->userbandratein || be->rate < param->userbandratein))
+				param->userbandratein = be->rate;
 		}
 	}
 	if(i<MAXBANDLIMS)param->bandlims[i] = NULL;
@@ -96,17 +100,77 @@ void initbandlims (struct clientparam *param){
 			}
 			param->bandlimsout[i++] = be;
 			param->bandlimfunc = conf.bandlimfunc;
+			if(be->peruser && (!param->userbandrateout || be->rate < param->userbandrateout))
+				param->userbandrateout = be->rate;
 		}
 	}
 	if(i<MAXBANDLIMS)param->bandlimsout[i] = NULL;
 	param->bandlimver = conf.bandlimver;
 }
 
+/* The mutex is held by the caller. A user name which is absent shares one
+   anonymous bucket, so a per-user rule with no authentication cannot be
+   escaped by simply not sending a name. */
+static struct bandlimuser * bandlimuser(struct bandlim *be, struct clientparam *param){
+	struct bandlimuser *bu;
+	const unsigned char *user = (param->username && *param->username)?
+		param->username : (const unsigned char *)"-";
+
+	for(bu = be->users; bu; bu = bu->next){
+		if(!strcmp((char *)bu->user, (char *)user)) return bu;
+	}
+	bu = malloc(sizeof(struct bandlimuser));
+	if(!bu) return NULL;
+	memset(bu, 0, sizeof(struct bandlimuser));
+	bu->user = (unsigned char *)strdup((char *)user);
+	if(!bu->user){
+		free(bu);
+		return NULL;
+	}
+	bu->next = be->users;
+	be->users = bu;
+	return bu;
+}
+
+static unsigned bandlimitrule(struct clientparam *param, struct bandlim *be,
+	unsigned nbytes, int outgoing, time_t sec, unsigned msec){
+	time_t *basetime = &be->basetime;
+	unsigned *nexttime = &be->nexttime;
+	unsigned now, nsleeptime;
+	uint64_t delay;
+
+	if(be->peruser){
+		struct bandlimuser *bu = bandlimuser(be, param);
+
+		if(bu){
+			basetime = &bu->basetime;
+			nexttime = &bu->nexttime;
+		}
+	}
+	if(!*basetime || *basetime > sec || *basetime < (sec - 120)){
+		*basetime = sec;
+		*nexttime = msec;
+	}
+	now = (unsigned)((sec - *basetime) * 1000000) + msec;
+	nsleeptime = (*nexttime > now)? *nexttime - now : 0;
+	*basetime = sec;
+	if(outgoing){
+		delay = (nbytes > 512)?
+			(uint64_t)((nbytes + 32) / 64) * ((64 * 8 * 1000000) / be->rate) :
+			(uint64_t)(nbytes + 1) * (8 * 1000000) / be->rate;
+	}
+	else {
+		delay = ((uint64_t)nbytes * 8 * 1000000) / be->rate;
+	}
+	*nexttime = msec + (uint64_t)nsleeptime + delay;
+	if(nsleeptime) param->userbandthrottled = 1;
+	return nsleeptime;
+}
+
 unsigned bandlimitfunc(struct clientparam *param, unsigned nbytesin, unsigned nbytesout){
 	unsigned sleeptime = 0, nsleeptime;
 	time_t sec;
 	unsigned msec;
-	unsigned now;
 	int i;
 
 #ifdef _WIN32
@@ -130,38 +194,12 @@ unsigned bandlimitfunc(struct clientparam *param, unsigned nbytesin, unsigned nb
 		param->bandlimver = conf.bandlimver;
 	}
 	for(i=0; nbytesin&& i<MAXBANDLIMS && param->bandlims[i]; i++){
-		if( !param->bandlims[i]->basetime ||
-			param->bandlims[i]->basetime > sec ||
-			param->bandlims[i]->basetime < (sec - 120)
-		  )
-		{
-			param->bandlims[i]->basetime = sec;
-			param->bandlims[i]->nexttime = 0;
-			continue;
-		}
-		now = (unsigned)((sec - param->bandlims[i]->basetime) * 1000000) + msec;
-		nsleeptime = (param->bandlims[i]->nexttime > now)?
-			param->bandlims[i]->nexttime - now : 0;
+		nsleeptime = bandlimitrule(param, param->bandlims[i], nbytesin, 0, sec, msec);
 		sleeptime = (nsleeptime > sleeptime)? nsleeptime : sleeptime;
-		param->bandlims[i]->basetime = sec;
-		param->bandlims[i]->nexttime = msec + nsleeptime + (((uint64_t)nbytesin * 8 * 1000000) / param->bandlims[i]->rate);
 	}
 	for(i=0; nbytesout && i<MAXBANDLIMS && param->bandlimsout[i]; i++){
-		if( !param->bandlimsout[i]->basetime ||
-			param->bandlimsout[i]->basetime > sec ||
-			param->bandlimsout[i]->basetime < (sec - 120)
-		  )
-		{
-			param->bandlimsout[i]->basetime = sec;
-			param->bandlimsout[i]->nexttime = 0;
-			continue;
-		}
-		now = (unsigned)((sec - param->bandlimsout[i]->basetime) * 1000000) + msec;
-		nsleeptime = (param->bandlimsout[i]->nexttime > now)?
-			param->bandlimsout[i]->nexttime - now : 0;
+		nsleeptime = bandlimitrule(param, param->bandlimsout[i], nbytesout, 1, sec, msec);
 		sleeptime = (nsleeptime > sleeptime)? nsleeptime : sleeptime;
-		param->bandlimsout[i]->basetime = sec;
-		param->bandlimsout[i]->nexttime = msec + nsleeptime + ((nbytesout > 512)? ((nbytesout+32)/64)*((64*8*1000000)/param->bandlimsout[i]->rate) : ((nbytesout+1)* (8*1000000))/param->bandlimsout[i]->rate);
 	}
 	_3proxy_mutex_unlock(&bandlim_mutex);
 	return sleeptime/1000;

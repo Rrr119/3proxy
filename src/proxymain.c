@@ -525,6 +525,7 @@ static int srvprepare(struct srvstart *s, int argc, char **argv){
 #else
  srv->needuser = 0;
  _3proxy_mutex_init(&log_mutex);
+ _3proxy_mutex_init(&audit_mutex);
 #endif
 
  for (i=1; i<argc; i++) {

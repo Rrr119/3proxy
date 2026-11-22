@@ -42,6 +42,11 @@ log c:\3proxy\logs\3proxy.log D
 # log allows you to specify log file location and rotation, D means logfile
 # is created daily
 
+#audit /var/log/3proxy/audit.log
+# audit is independent of the access log. It records one line per session,
+# including refused authentication and access-rule denials. Use "noaudit"
+# or "audit off" to disable it.
+
 #logformat "L%d-%m-%Y %H:%M:%S %z %N.%p %E %U %C:%c %R:%r %O %I %h %T"
 #logformat "Linsert into log (l_date, l_user, l_service, l_in, l_out, l_descr) values ('%d-%m-%Y %H:%M:%S', '%U', '%N', %I, %O, '%T')"
 #Compatible with Squid access.log:
@@ -95,6 +100,11 @@ auth iponly
 # unknown user will not be allowed to use proxy regardless of ACL.
 # If you do not want username to be checked but wanna ACL to work you should
 # specify auth iponly.
+
+# Bandwidth limits can keep one bucket per authenticated user instead of
+# sharing one bucket between everyone the rule matches:
+#userbandlimin 1048576 * 192.168.1.0/24
+#userbandlimout 262144 * 192.168.1.0/24
 
 
 #allow ADMINISTRATOR,root

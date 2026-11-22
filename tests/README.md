@@ -88,6 +88,10 @@ covers, and how much of a fixture it needs.
 `bandlimin` `bandlimout` `nobandlimin` `nobandlimout` `connlim` `noconnlim`
 `countin` `countout` `countall` and the `no*` forms.
 
+`userbandlimin` and `userbandlimout` are covered by `userlimits_audit`,
+through HTTP, SOCKS5 and SOCKS4 clients, together with the independent bucket
+each user gets. The same case covers the `audit` log, including refusals.
+
 Cheap and worth doing first: `data?size=` and a stopwatch measure a
 bandwidth limit, and the admin counters page already shows what a counter
 holds. `countin` appears in a configuration today but nothing checks that it
@@ -135,7 +139,8 @@ and nothing proves that.
 
 ### Logging
 
-`logformat` `rotate` `archiver` `logdump`.
+`logformat` `rotate` `archiver` `logdump`. `audit` is covered by
+`userlimits_audit`; the fields the case relies on are asserted individually.
 
 Tests read the log as free text, so a reordered field would pass every check
 here and break every downstream parser. `rotate` and `archiver` need control

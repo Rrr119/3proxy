@@ -10,16 +10,220 @@
 
 
 #include "proxy.h"
+#include <stdarg.h>
 _3proxy_mutex_t log_mutex;
+_3proxy_mutex_t audit_mutex;
 int havelog = 0;
 
 
 struct clientparam logparam;
 struct srvparam logsrv;
 
+struct auditline {
+	char data[8192];
+	size_t len;
+};
+
+static void auditprintf(struct auditline *line, const char *format, ...){
+	va_list ap;
+	int written;
+
+	if(line->len >= sizeof(line->data) - 1) return;
+	va_start(ap, format);
+	written = vsnprintf(line->data + line->len, sizeof(line->data) - line->len,
+		format, ap);
+	va_end(ap);
+	if(written > 0){
+		line->len += (size_t)written;
+		if(line->len >= sizeof(line->data)) line->len = sizeof(line->data) - 1;
+	}
+}
+
+/* Values go into one whitespace-delimited field. Percent-encoding makes the
+   line unambiguous without losing bytes from a name. */
+static void audittokenmax(struct auditline *line, const unsigned char *value,
+	int maxchars){
+	static const char hex[] = "0123456789ABCDEF";
+	int i;
+
+	if(!value || !*value){
+		auditprintf(line, "-");
+		return;
+	}
+	for(i = 0; value[i] && (!maxchars || i < maxchars); i++){
+		unsigned char c = value[i];
+
+		if(c <= 0x20 || c == 0x7f || c == '%' || c == '=' || c == '\\'){
+			auditprintf(line, "%%%c%c", hex[c >> 4], hex[c & 15]);
+		}
+		else {
+			auditprintf(line, "%c", c);
+		}
+	}
+	if(maxchars && value[i]) auditprintf(line, "...");
+}
+
+static void audittoken(struct auditline *line, const unsigned char *value){
+	audittokenmax(line, value, 0);
+}
+
+static const char * auditresult(struct clientparam *param){
+	int action = param->lastace? param->lastace->action : -1;
+	int res = param->res;
+
+	if(!res) return "allow";
+	if(res == 10) return "limit";
+	if(action == DENY || res == 1 || res == 3) return "deny";
+	if(res == 4) return "auth_required";
+	if(res >= 5 && res <= 9) return "auth_failed";
+	if(res < 100) return "denied";
+	return "error";
+}
+
+static const char * auditservice(PROXYSERVICE service){
+	switch(service){
+		case S_PROXY: return "proxy";
+		case S_TCPPM: return "tcppm";
+		case S_POP3P: return "pop3p";
+		case S_SOCKS4: return "socks4";
+		case S_SOCKS5: return "socks5";
+		case S_UDPPM: return "udppm";
+		case S_SOCKS: return "socks";
+		case S_SOCKS45: return "socks4a";
+		case S_ADMIN: return "admin";
+		case S_DNSPR: return "dnspr";
+		case S_FTPPR: return "ftppr";
+		case S_SMTPP: return "smtpp";
+		case S_AUTO: return "auto";
+		case S_TLSPR: return "tlspr";
+		case S_IMAPP: return "imapp";
+		case S_HTTPSRV: return "httpsrv";
+		default: return "unknown";
+	}
+}
+
+static const char * auditaction(int action){
+	switch(action){
+		case ALLOW: return "allow";
+		case DENY: return "deny";
+		case REDIRECT: return "redirect";
+		case BANDLIM: return "bandlim";
+		case NOBANDLIM: return "nobandlim";
+		case COUNTIN: return "countin";
+		case NOCOUNTIN: return "nocountin";
+		case COUNTOUT: return "countout";
+		case NOCOUNTOUT: return "nocountout";
+		case CONNLIM: return "connlim";
+		case NOCONNLIM: return "noconnlim";
+		case COUNTALL: return "countall";
+		case NOCOUNTALL: return "nocountall";
+		default: return "unknown";
+	}
+}
+
+/* Written alongside every ordinary access-log record, and whether or not one
+   is configured. Authentication and ACL failures are recorded with the user
+   name the client offered, never with its password. */
+void auditsession(struct clientparam *param, const unsigned char *text){
+	struct auditline line;
+	char timestamp[64], host[128];
+	const unsigned char *target;
+	struct tm tm, *tmp;
+	time_t now;
+	uint64_t elapsed = 0;
+	unsigned msec = 0;
+	FILE *out;
+	char *ip;
+
+	if(!param || !param->srv || !param->time_start) return;
+	_3proxy_mutex_lock(&audit_mutex);
+	out = conf.auditstdout? stdout : conf.auditfp;
+	if(!out){
+		_3proxy_mutex_unlock(&audit_mutex);
+		return;
+	}
+
+	now = time(NULL);
+	tmp = localtime(&now);
+	if(tmp) tm = *tmp;
+	else memset(&tm, 0, sizeof(tm));
+	if(!strftime(timestamp, sizeof(timestamp), "%Y-%m-%dT%H:%M:%S%z", &tm))
+		strcpy(timestamp, "-");
+#ifdef _WIN32
+	{
+		struct timeb tb;
+
+		ftime(&tb);
+		msec = (unsigned)tb.millitm;
+	}
+#else
+	{
+		struct timeval tv;
+
+		gettimeofday(&tv, NULL);
+		msec = (unsigned)(tv.tv_usec / 1000);
+	}
+#endif
+	if(now >= param->time_start){
+		elapsed = (uint64_t)(now - param->time_start) * 1000;
+		if(msec >= param->msec_start) elapsed += msec - param->msec_start;
+	}
+
+	line.len = 0;
+	line.data[0] = 0;
+	auditprintf(&line, "audit ts=%s", timestamp);
+	auditprintf(&line, " event=session result=%s", auditresult(param));
+	auditprintf(&line, " user=");
+	audittoken(&line, param->username);
+
+	ip = "-";
+	if(*SAFAMILY(&param->sincr) == AF_INET
+#ifndef NOIPV6
+	   || *SAFAMILY(&param->sincr) == AF_INET6
+#endif
+	  ){
+		if(myinet_ntop(*SAFAMILY(&param->sincr), SAADDR(&param->sincr),
+				host, sizeof(host))) ip = host;
+	}
+	auditprintf(&line, " client=");
+	audittoken(&line, (unsigned char *)ip);
+	auditprintf(&line, ":%hu", ntohs(*SAPORT(&param->sincr)));
+
+	target = (param->hostname && *param->hostname)? param->hostname : NULL;
+	if(!target){
+		if(*SAFAMILY(&param->req) == AF_INET
+#ifndef NOIPV6
+		   || *SAFAMILY(&param->req) == AF_INET6
+#endif
+		  ){
+			if(myinet_ntop(*SAFAMILY(&param->req), SAADDR(&param->req),
+					host, sizeof(host))) target = (unsigned char *)host;
+		}
+	}
+	auditprintf(&line, " target=");
+	audittoken(&line, target);
+	auditprintf(&line, ":%hu", ntohs(*SAPORT(&param->req)));
+	auditprintf(&line, " service=%s", auditservice(param->service));
+	auditprintf(&line, " status=%d error=%d", param->status, param->res);
+	auditprintf(&line, " bytes_in=%"PRIu64" bytes_out=%"PRIu64,
+		param->statssrv64, param->statscli64);
+	auditprintf(&line, " duration_ms=%"PRIu64, elapsed);
+	auditprintf(&line, " acl=%s", param->lastace? auditaction(param->lastace->action) : "-");
+	auditprintf(&line, " request=");
+	audittokenmax(&line, text, 1024);
+	auditprintf(&line, " throttled=%d", param->userbandthrottled? 1 : 0);
+	auditprintf(&line, " rate_in=%u rate_out=%u",
+		param->userbandratein, param->userbandrateout);
+
+	fprintf(out, "%s\n", line.data);
+	fflush(out);
+	_3proxy_mutex_unlock(&audit_mutex);
+}
+
 
 
 void dolog(struct clientparam * param, const unsigned char *s){
+	if(param) auditsession(param, s);
 	if(param && param->srv)param->srv->logfunc(param, s);
 	else logstdout(NULL, s);
 }

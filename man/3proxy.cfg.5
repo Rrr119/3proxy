@@ -448,6 +448,33 @@ traffic is achieved for connection, without waiting for connection to finish.
 It may be useful to prevent information about long-lasting downloads on server
 shutdown.
 
+.BR audit
+[\fIlogfile\fR]
+.br
+.B noaudit
+.br
+ Enables a session audit log independent of \fBlog\fR. With no argument, or
+with \fB-\fR, records go to stdout; with a filename they are appended to that
+file. \fBauditlog\fR is an alias. \fBaudit off\fR, \fBaudit none\fR and
+\fBnoaudit\fR disable auditing.
+.br
+ One line is written for every finished session, including sessions refused by
+authentication or an access rule, whether or not the ordinary access log is
+enabled or suppressed by \fBnolog\fR. Fields are whitespace-separated
+\fIname=value\fR pairs:
+.br
+ \fBts\fR - local time, \fBevent\fR - \fBsession\fR, \fBresult\fR - one of
+\fBallow\fR, \fBdeny\fR, \fBlimit\fR, \fBauth_required\fR, \fBauth_failed\fR,
+\fBdenied\fR or \fBerror\fR, \fBuser\fR, \fBclient\fR, \fBtarget\fR,
+\fBservice\fR, \fBstatus\fR, \fBerror\fR, \fBbytes_in\fR, \fBbytes_out\fR,
+\fBduration_ms\fR, \fBacl\fR, \fBrequest\fR, \fBthrottled\fR, \fBrate_in\fR
+and \fBrate_out\fR. The request line is limited to the first 1024 characters;
+headers and credentials are not part of it.
+.br
+ Values which contain a space, \fB=\fR, \fB%\fR or a control character are
+percent-encoded, so one record always stays on one line. The password field
+and authentication headers are not written.
+
 .br
 .BR delimchar
 \fI<char>\fR
@@ -1152,6 +1179,22 @@ noforce allows to keep previously authenticated connections.
 \fI<userlist>\fR \fI<sourcelist>\fR \fI<targetlist>\fR \fI<targetportlist>\fR \fI<operationlist>\fR
 \fI<weekdayslist>\fR \fI<timeperiodslist>\fR
 .br
+.BR userbandlimin
+\fI<rate>\fR \fI<userlist>\fR \fI<sourcelist>\fR \fI<targetlist>\fR \fI<targetportlist>\fR \fI<operationlist>\fR
+\fI<weekdayslist>\fR \fI<timeperiodslist>\fR
+.br
+.BR userbandlimout
+\fI<rate>\fR \fI<userlist>\fR \fI<sourcelist>\fR \fI<targetlist>\fR \fI<targetportlist>\fR \fI<operationlist>\fR
+\fI<weekdayslist>\fR \fI<timeperiodslist>\fR
+.br
+.BR nouserbandlimin
+\fI<userlist>\fR \fI<sourcelist>\fR \fI<targetlist>\fR \fI<targetportlist>\fR \fI<operationlist>\fR
+\fI<weekdayslist>\fR \fI<timeperiodslist>\fR
+.br
+.BR nouserbandlimout
+\fI<userlist>\fR \fI<sourcelist>\fR \fI<targetlist>\fR \fI<targetportlist>\fR \fI<operationlist>\fR
+\fI<weekdayslist>\fR \fI<timeperiodslist>\fR
+.br
  bandlim sets a bandwidth limitation filter to \fI<rate>\fR bps (bits per second).
 If you want to specify bytes per second, multiply your value by 8.
 bandlim rules act in the same manner as allow/deny rules, except for
@@ -1182,6 +1225,24 @@ If you want, for example, to limit all speed except access to POP3, you can use
  nobandlimin * * * 110
 .br
  before the rest of bandlim rules.
+.br
+ \fBuserbandlimin\fR and \fBuserbandlimout\fR match access rules in the same
+way as \fBbandlimin\fR and \fBbandlimout\fR, but keep a separate bandwidth
+bucket for every user name matched by the rule. This gives every user the
+full \fI<rate>\fR without writing one rule per user:
+.br
+ userbandlimin 57600 * 192.168.10.0/24
+.br
+ userbandlimout 57600 * 192.168.10.0/24
+.br
+ The first limits each user's download and the second each user's upload.
+Rules without \fBuser\fR in their name keep the original shared-bucket
+behaviour. A session with no authenticated name uses one anonymous bucket, so
+per-user limits require an authentication method which supplies a name.
+\fBnouserbandlimin\fR and \fBnouserbandlimout\fR add the same kind of
+exception as \fBnobandlimin\fR and \fBnobandlimout\fR. The spellings
+\fBbandliminuser\fR, \fBbandlimoutuser\fR, \fBnobandliminuser\fR and
+\fBnobandlimoutuser\fR are accepted as aliases.
 
 .br
 .BR connlim

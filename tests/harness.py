@@ -618,13 +618,15 @@ class Tester:
     # ---- SOCKS -------------------------------------------------------
 
     def _socks_connect(self, shost, sport, host, port, socks4=False,
-                       remote_dns=False, auth=None):
+                       remote_dns=False, auth=None, socks4_user=None):
         sock = socket.create_connection((shost, sport), self.timeout)
         sock.settimeout(self.timeout)
         try:
             if socks4:
                 addr = socket.inet_aton(socket.gethostbyname(host))
-                sock.sendall(b"\x04\x01" + struct.pack("!H", port) + addr + b"\x00")
+                user = (socks4_user or "").encode()
+                sock.sendall(b"\x04\x01" + struct.pack("!H", port) + addr +
+                             user + b"\x00")
                 reply = self._recvall(sock, 8)
                 if len(reply) < 2 or reply[1] != 0x5a:
                     raise OSError("SOCKS4 request refused")
@@ -666,12 +668,13 @@ class Tester:
             raise
 
     def socks_connect(self, socks, host, port, socks4=False, remote_dns=False,
-                      auth=None):
+                      auth=None, socks4_user=None):
         """Open a SOCKS connection, reporting failure rather than raising."""
         shost, sport = self._hostport(socks)
         try:
             sock = self._socks_connect(shost, sport, host, port, socks4=socks4,
-                                       remote_dns=remote_dns, auth=auth)
+                                       remote_dns=remote_dns, auth=auth,
+                                       socks4_user=socks4_user)
             sock.close()
             return None
         except OSError as exc:

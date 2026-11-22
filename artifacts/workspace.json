@@ -1,0 +1,17 @@
+{
+  "root": "/home/dev/feedback/uid34513",
+  "B": "/home/dev/feedback/uid34513",
+  "sha": "edad30c2d2bb057d450d313960680e1e7da47133",
+  "wslDistro": "Ubuntu-26.04",
+  "source": {
+    "owner": "3proxy",
+    "repo": "3proxy",
+    "sha": "edad30c2d2bb057d450d313960680e1e7da47133"
+  },
+  "fork": {
+    "owner": "Rrr119",
+    "repo": "3proxy",
+    "cloneUrl": "https://github.com/Rrr119/3proxy.git"
+  },
+  "at": "2026-11-22T19:47:14.928Z"
+}

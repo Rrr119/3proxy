@@ -290,6 +290,7 @@ int doauth(struct clientparam * param);
 int strongauth(struct clientparam * param);
 void trafcountfunc(struct clientparam *param);
 unsigned bandlimitfunc(struct clientparam *param, unsigned nbytesin, unsigned nbytesout);
+void auditsession(struct clientparam *param, const unsigned char *text);
 int handleredirect(struct clientparam * param, struct ace * acentry);
 
 int scanaddr(const unsigned char *s, uint32_t * ip, uint32_t * mask);
@@ -481,6 +482,7 @@ extern int runningservices;
 extern _3proxy_mutex_t runningservices_mutex;
 extern _3proxy_sem_t serviceexited;
 extern _3proxy_mutex_t bandlim_mutex;
+extern _3proxy_mutex_t audit_mutex;
 extern _3proxy_mutex_t connlim_mutex;
 extern _3proxy_mutex_t tc_mutex;
 extern _3proxy_mutex_t log_mutex;

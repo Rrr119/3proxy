@@ -420,6 +420,55 @@ static int h_log(int argc, unsigned char ** argv){
 	return 0;
 }
 
+/* The audit log is independent of the access log: it records the outcome
+   and accounting of every session even when the ordinary log is disabled or
+   suppressed by an access rule. */
+static int h_audit(int argc, unsigned char **argv){
+	FILE *fp = NULL;
+	int to_stdout = 0;
+
+	if(!strcmp((char *)argv[0], "noaudit") ||
+	   (argc > 1 && (!strcmp((char *)argv[1], "off") ||
+	                 !strcmp((char *)argv[1], "none") ||
+	                 !strcmp((char *)argv[1], "0")))){
+		_3proxy_mutex_lock(&audit_mutex);
+		if(conf.auditfp) fclose(conf.auditfp);
+		conf.auditfp = NULL;
+		conf.auditstdout = 0;
+		if(conf.auditname){
+			free(conf.auditname);
+			conf.auditname = NULL;
+		}
+		_3proxy_mutex_unlock(&audit_mutex);
+		return 0;
+	}
+	if(argc < 2 || !strcmp((char *)argv[1], "-") ||
+	   !strcmp((char *)argv[1], "on")){
+		to_stdout = 1;
+	}
+	else {
+		fp = fopen((char *)argv[1], "a");
+		if(!fp){
+			perror((char *)argv[1]);
+			return 1;
+		}
+	}
+	_3proxy_mutex_lock(&audit_mutex);
+	if(conf.auditfp) fclose(conf.auditfp);
+	conf.auditfp = fp;
+	conf.auditstdout = to_stdout;
+	if(conf.auditname) free(conf.auditname);
+	conf.auditname = (argc < 2 || to_stdout)? NULL : (unsigned char *)strdup((char *)argv[1]);
+	if(argc >= 2 && !to_stdout && !conf.auditname){
+		fclose(fp);
+		conf.auditfp = NULL;
+		_3proxy_mutex_unlock(&audit_mutex);
+		return 21;
+	}
+	_3proxy_mutex_unlock(&audit_mutex);
+	return 0;
+}
+
 static int h_stacksize(int argc, unsigned char **argv){
 	conf.stacksize = atoi((char *)argv[1]);
 	return 0;
@@ -1525,6 +1574,7 @@ struct ace * make_ace (int argc, unsigned char ** argv){
 static int h_ace(int argc, unsigned char **argv){
   int res = 0;
   int offset = 0;
+  int peruser = 0;
   struct ace *acl = NULL;
   struct bandlim * nbl;
   struct trafcount * tl;
@@ -1544,8 +1594,19 @@ static int h_ace(int argc, unsigned char **argv){
 		res = BANDLIM;
 		offset = 1;
 	}
+	else if(!strcmp((char *)argv[0], "userbandlimin")||!strcmp((char *)argv[0], "userbandlimout")||
+	        !strcmp((char *)argv[0], "bandliminuser")||!strcmp((char *)argv[0], "bandlimoutuser")){
+		res = BANDLIM;
+		offset = 1;
+		peruser = 1;
+	}
 	else if(!strcmp((char *)argv[0], "nobandlimin")||!strcmp((char *)argv[0], "nobandlimout")){
 		res = NOBANDLIM;
+	}
+	else if(!strcmp((char *)argv[0], "nouserbandlimin")||!strcmp((char *)argv[0], "nouserbandlimout")||
+	        !strcmp((char *)argv[0], "nobandliminuser")||!strcmp((char *)argv[0], "nobandlimoutuser")){
+		res = NOBANDLIM;
+		peruser = 1;
 	}
 	else if(!strcmp((char *)argv[0], "countin")){
 		res = COUNTIN;
@@ -1644,6 +1705,7 @@ static int h_ace(int argc, unsigned char **argv){
 		}
 		memset(nbl, 0, sizeof(struct bandlim));
 		nbl->ace = acl;
+		nbl->peruser = peruser;
 		if(acl->action == BANDLIM) {
 			sscanf((char *)argv[1], "%u", &nbl->rate);
 			if(nbl->rate < 300) {
@@ -1654,7 +1716,9 @@ static int h_ace(int argc, unsigned char **argv){
 			}
 		}
 		_3proxy_mutex_lock(&bandlim_mutex);
-		if(!strcmp((char *)argv[0], "bandlimin") || !strcmp((char *)argv[0], "nobandlimin")){
+		if(!strcmp((char *)argv[0], "bandlimin") || !strcmp((char *)argv[0], "nobandlimin") ||
+		   !strcmp((char *)argv[0], "userbandlimin") || !strcmp((char *)argv[0], "nouserbandlimin") ||
+		   !strcmp((char *)argv[0], "bandliminuser") || !strcmp((char *)argv[0], "nobandliminuser")){
 			if(!conf.bandlimiter){
 				conf.bandlimiter = nbl;
 			}
@@ -2047,6 +2111,9 @@ struct commands commandhandlers[]={
 	{NULL,  "internal", h_internal, 2, 2},
 	{NULL, "external", h_external, 2, 2},
 	{NULL, "log", h_log, 1, 0},
+	{NULL, "audit", h_audit, 1, 2},
+	{NULL, "auditlog", h_audit, 1, 2},
+	{NULL, "noaudit", h_audit, 1, 1},
 	{NULL, "service", h_service, 1, 1},
 	{NULL, "daemon", h_daemon, 1, 1},
 	{NULL, "config", h_config, 2, 2},
@@ -2075,8 +2142,16 @@ struct commands commandhandlers[]={
 	{NULL, "redirect", h_ace, 3, 0},
 	{NULL, "bandlimin", h_ace, 2, 0},
 	{NULL, "bandlimout", h_ace, 2, 0},
+	{NULL, "userbandlimin", h_ace, 2, 0},
+	{NULL, "userbandlimout", h_ace, 2, 0},
+	{NULL, "bandliminuser", h_ace, 2, 0},
+	{NULL, "bandlimoutuser", h_ace, 2, 0},
 	{NULL, "nobandlimin", h_ace, 1, 0},
 	{NULL, "nobandlimout", h_ace, 1, 0},
+	{NULL, "nouserbandlimin", h_ace, 1, 0},
+	{NULL, "nouserbandlimout", h_ace, 1, 0},
+	{NULL, "nobandliminuser", h_ace, 1, 0},
+	{NULL, "nobandlimoutuser", h_ace, 1, 0},
 	{NULL, "countin", h_ace, 4, 0},
 	{NULL, "nocountin", h_ace, 1, 0},
 	{NULL, "countout", h_ace, 4, 0},
@@ -2351,6 +2426,16 @@ void freepwl(struct passwords *pwl){
 	}
 }
 
+static void freebandlimusers(struct bandlimuser *bu){
+	struct bandlimuser *next;
+
+	for(; bu; bu = next){
+		next = bu->next;
+		free(bu->user);
+		free(bu);
+	}
+}
+
 
 void freeconf(struct extparam *confp){
  struct bandlim * bl;
@@ -2398,6 +2483,15 @@ void freeconf(struct extparam *confp){
  confp->rotate = 0;
  confp->logtype = NONE;
  confp->logtime = confp->time = 0;
+ _3proxy_mutex_lock(&audit_mutex);
+ if(confp->auditfp) fclose(confp->auditfp);
+ confp->auditfp = NULL;
+ confp->auditstdout = 0;
+ if(confp->auditname){
+	free(confp->auditname);
+	confp->auditname = NULL;
+ }
+ _3proxy_mutex_unlock(&audit_mutex);
 
  archiverc = confp->archiverc;
  confp->archiverc = 0;
@@ -2435,8 +2529,14 @@ void freeconf(struct extparam *confp){
 
  
  freeacl(acl);
- for(; bl; bl = (struct bandlim *) itfree(bl, bl->next)) freeacl(bl->ace);
- for(; blout; blout = (struct bandlim *) itfree(blout, blout->next))freeacl(blout->ace);
+ for(; bl; bl = (struct bandlim *) itfree(bl, bl->next)){
+	freebandlimusers(bl->users);
+	freeacl(bl->ace);
+ }
+ for(; blout; blout = (struct bandlim *) itfree(blout, blout->next)){
+	freebandlimusers(blout->users);
+	freeacl(blout->ace);
+ }
  for(; cl; cl = (struct connlim *) itfree(cl, cl->next)) freeacl(cl->ace);
 
  if(counterd != -1) {

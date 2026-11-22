@@ -449,6 +449,17 @@ struct bandlim {
 	time_t basetime;
 	unsigned nexttime;
 	unsigned rate;
+	/* A per-user limiter keeps one bucket for every user it serves. The
+	   fields above remain the shared bucket used by the original rules. */
+	int peruser;
+	struct bandlimuser *users;
+};
+
+struct bandlimuser {
+	struct bandlimuser *next;
+	unsigned char *user;
+	time_t basetime;
+	unsigned nexttime;
 };
 
 struct connlim {
@@ -796,6 +807,11 @@ struct clientparam {
 	   member is only reached once every weighted one is in here. */
 	struct chain *failedparents[MAXFAILEDPARENTS];
 	int nfailedparents;
+	/* Set while a bandwidth rule throttled this request. Audit records
+	   report these without changing the fields plugins and the access log
+	   already use. */
+	int userbandthrottled;
+	unsigned userbandratein, userbandrateout;
 };
 
 struct filemon {
@@ -847,6 +863,9 @@ struct extparam {
 	time_t logtime, time;
 	unsigned logdumpsrv, logdumpcli;
 	char delimchar;
+	unsigned char *auditname;
+	FILE *auditfp;
+	int auditstdout;
 };
 
 struct property {

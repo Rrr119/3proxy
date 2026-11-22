@@ -1,5 +1,7 @@
 3proxy-1.0.4 Released November, 21 2026
 
++ New: userbandlimin and userbandlimout keep a separate bandwidth bucket for every user matched by an access rule; existing bandlim rules keep their shared bucket
++ New: audit writes an independent per-session audit log with the user, destination, result, traffic, duration, ACL decision and throttling state, including failed authentication and refused access
 ! Fix: socks: a SOCKS4a request was refused as a connect to the null address, although in SOCKS4a the null address means that the destination is the name which follows it
 ! Fix: auth: a UDP ASSOCIATE is pre-authorized without looking at the destination its rules depend on, so its verdict holds for that association alone and is not kept for later requests
 ! Fix: socks: a UDP association was relayed direct when its parent failed, although the rules demanded the parent; it is refused now

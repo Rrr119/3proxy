@@ -454,6 +454,10 @@ static void * ef_bandlimit_rate(struct node * node){
 	return &((struct bandlim *)node->value) -> rate;
 }
 
+static void * ef_bandlimit_peruser(struct node * node){
+	return &((struct bandlim *)node->value) -> peruser;
+}
+
 static void * ef_trafcounter_next(struct node * node){
 	return ((struct trafcount *)node->value) -> next;
 }
@@ -836,6 +840,7 @@ static struct property prop_ace[] = {
 static struct property prop_bandlimit[] = {
 	{"ace", ef_bandlimit_ace, TYPE_ACE, "acl to apply"},
 	{"rate", ef_bandlimit_rate, TYPE_UNSIGNED, "max allowed bandwidth"},
+	{"peruser", ef_bandlimit_peruser, TYPE_INTEGER, "separate bucket for every user"},
 	{"next", ef_bandlimit_next, TYPE_BANDLIMIT, "next"}
 };
 
